@@ -7,10 +7,7 @@ use bevy::light::PointLight;
 use bevy::math::{Quat, Vec3};
 use bevy::mesh::Mesh3d;
 use bevy::pbr::{MeshMaterial3d, StandardMaterial};
-use bevy::prelude::{
-    Circle, Commands, CommandsSceneExt, Cuboid, ResMut, SceneList, Transform, bsn_list,
-    template_value,
-};
+use bevy::prelude::{Circle, Commands, CommandsSceneExt, Cuboid, ResMut, SceneList, Transform, bsn_list, template_value, With, Query};
 use bevy_mod_screenshot_test::{ScreenshotTestConfig, ScreenshotTestPlugin, TestTask, TestTasks};
 use log::info;
 
@@ -21,16 +18,16 @@ fn main() {
 
     TestTasks::for_app(&mut app)
         .with_config(ScreenshotTestConfig::default())
-        .run("initialize", |mut tasks: ResMut<TestTask>| {
+        .run("initialize", |mut task: ResMut<TestTask>| {
             info!("doing... nothing!");
-            tasks.finish();
+            task.finish();
         })
         .take_screenshot("example_empty")
         .run(
             "add scene",
-            |mut commands: Commands, mut tasks: ResMut<TestTask>| {
+            |mut commands: Commands, mut task: ResMut<TestTask>| {
                 commands.spawn_scene_list(scene());
-                tasks.finish();
+                task.finish();
             },
         )
         // only works for pipelines
@@ -38,7 +35,18 @@ fn main() {
         // TODO: figure out a better way to wait for scene to be loaded.
         .sleep(10)
         .take_screenshot("example_scene")
+        .run(
+            "rotate",
+            rotate
+        )
+        .take_screenshot("example_rotated")
         .validate();
+}
+fn rotate(mut task: ResMut<TestTask>, query: Query<&mut Transform, With<Camera3d>>){
+    for mut transform in query {
+        *transform = Transform::from_xyz(2.5, 4.5, -9.0).looking_at(Vec3::ZERO, Vec3::Y);
+    }
+    task.finish()
 }
 
 fn scene() -> impl SceneList {
@@ -63,7 +71,7 @@ fn scene() -> impl SceneList {
         ),
         (
             Camera3d
-            template_value(Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y))
+            template_value(Transform::from_xyz(2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y))
         )
     ]
 }

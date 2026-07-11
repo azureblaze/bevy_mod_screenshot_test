@@ -2,24 +2,23 @@
 name = "bevy_mod_screenshot_test"
 version = "0.1.0"
 edition = "2024"
+repository="https://github.com/azureblaze/bevy_mod_screenshot_test"
 autotests = false
+categories=["game-development", "development-tools::testing"]
+keywords=["bevy"]
 
 [dependencies]
-bevy = "0.19"
+bevy = {version = "0.19", features = ["bevy_render", "default_app"]}
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
-log = { version = "0.4", features = [
-    "max_level_debug",
-    "release_max_level_warn",
-] }
-tracing = { version = "0.1", features = [
-    "max_level_debug",
-    "release_max_level_warn",
-] }
+log = { version = "0.4" }
+
 rendiff = "0.2.2"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 imgref = "1.12.2"
 anstyle = "1.0.14"
 
+[dev-dependencies]
+bevy = {version =  "0.19", features = ["3d"]}
 
 [[test]]
 name="example"
