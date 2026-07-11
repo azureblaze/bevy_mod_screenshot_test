@@ -1,11 +1,13 @@
 [package]
 name = "bevy_mod_screenshot_test"
+description = "Screenshot test plugin for Bevy"
 version = "0.1.0"
 edition = "2024"
 repository="https://github.com/azureblaze/bevy_mod_screenshot_test"
 autotests = false
 categories=["game-development", "development-tools::testing"]
 keywords=["bevy"]
+license = "Apache-2.0"
 
 [dependencies]
 bevy = {version = "0.19", features = ["bevy_render", "default_app"]}
