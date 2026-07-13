@@ -12,7 +12,7 @@ use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_dis
 use imgref::ImgVec;
 use log::info;
 use rendiff::Threshold;
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -114,7 +114,7 @@ impl ScreenshotTestConfig {
 
 impl Default for ScreenshotTestConfig {
     fn default() -> Self {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let root = Path::new(&std::env::var("CARGO_MANIFEST_DIR").unwrap()).join("tests");
         ScreenshotTestConfig {
             expected_dir: root.join("expected"),
             actual_dir: root.join("actual"),
