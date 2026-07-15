@@ -1,3 +1,4 @@
+use std::process::ExitCode;
 use bevy::DefaultPlugins;
 use bevy::app::App;
 use bevy::asset::asset_value;
@@ -8,23 +9,24 @@ use bevy::math::{Quat, Vec3};
 use bevy::mesh::Mesh3d;
 use bevy::pbr::{MeshMaterial3d, StandardMaterial};
 use bevy::prelude::{Circle, Commands, CommandsSceneExt, Cuboid, ResMut, SceneList, Transform, bsn_list, template_value, With, Query};
-use bevy_mod_screenshot_test::{ScreenshotTestConfig, ScreenshotTestPlugin, TestTask, TestTasks};
+use bevy_mod_screenshot_test::{ScreenshotTestConfig, ScreenshotTestPlugin, TaskInfo, TestTask, TestTasks};
 use log::info;
 
-fn main() {
+fn main() -> ExitCode{
+
     let mut app = App::new();
     app.add_plugins(DefaultPlugins)
         .add_plugins(ScreenshotTestPlugin);
 
     TestTasks::for_app(&mut app)
         .with_config(ScreenshotTestConfig::default())
-        .run("initialize", |mut task: ResMut<TestTask>| {
+        .run("initialize".into(), |mut task: ResMut<TestTask>| {
             info!("doing... nothing!");
             task.finish();
         })
         .take_screenshot("example_empty")
         .run(
-            "add scene",
+            "add scene".into(),
             |mut commands: Commands, mut task: ResMut<TestTask>| {
                 commands.spawn_scene_list(scene());
                 task.finish();
@@ -36,11 +38,11 @@ fn main() {
         .sleep(10)
         .take_screenshot("example_scene")
         .run(
-            "rotate",
+            TaskInfo::task("rotate").only_for("example_rotated"),
             rotate
         )
         .take_screenshot("example_rotated")
-        .validate();
+        .validate()
 }
 fn rotate(mut task: ResMut<TestTask>, query: Query<&mut Transform, With<Camera3d>>){
     for mut transform in query {

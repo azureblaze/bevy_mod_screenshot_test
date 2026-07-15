@@ -45,7 +45,7 @@ fn main() {
         .with_config(ScreenshotTestConfig::default())
         .run(
             // label for the task which will be logged when it finishes.
-            "add scene",
+            "add scene".into(),
             // a lambda system
             |mut commands: Commands, mut task: ResMut<TestTask>| {
                 commands.spawn_scene_list(scene());

@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 
 use crate::pipelines_ready::{PipelinesReady, PipelinesReadyPlugin};
-use anstyle::AnsiColor;
 use bevy::app::{App, AppExit, Plugin, Update};
 use bevy::diagnostic::FrameCount;
 use bevy::ecs::system::ScheduleSystem;
@@ -10,11 +9,13 @@ use bevy::prelude::{
 };
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
 use imgref::ImgVec;
+use libtest_mimic::{Arguments, Failed, Trial};
 use log::info;
 use rendiff::Threshold;
 use std::collections::VecDeque;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::ExitCode;
 
 /// Configures how the test behaves. Apply with [TestTasks::with_config].
 #[derive(Resource, Clone)]
@@ -136,7 +137,32 @@ impl Default for ScreenshotTestConfig {
 #[derive(Default, Clone)]
 pub struct TaskInfo {
     pub name: String,
+    pub test_case: String,
     pub screenshot: String,
+}
+
+impl TaskInfo {
+    pub fn unnamed() -> Self {
+        TaskInfo::default()
+    }
+
+    pub fn task(name: impl Into<String>) -> Self {
+        TaskInfo {
+            name: name.into(),
+            ..default()
+        }
+    }
+    pub fn only_for(&mut self, screenshot: impl Into<String>) -> Self {
+        let mut task = self.clone();
+        task.test_case = screenshot.into();
+        task
+    }
+}
+
+impl From<&str> for TaskInfo {
+    fn from(value: &str) -> Self {
+        TaskInfo::task(value)
+    }
 }
 
 #[derive(Default)]
@@ -157,19 +183,19 @@ impl Plugin for ScreenshotTestPlugin {
 ///
 /// # Example
 /// ```ignore
-/// fn main() {
+/// fn main() -> ExitCode {
 ///     let mut app = App::new();
 ///     app.add_plugins(DefaultPlugins)
 ///         .add_plugins(ScreenshotTestPlugin);
 ///
 ///     TestTasks::for_app(&mut app)
 ///         .with_config(ScreenshotTestConfig{..default()})
-///         .run("do things", |mut task: ResMut<TestTask>| {
+///         .run("do things".into(), |mut task: ResMut<TestTask>| {
 ///             info!("doing... nothing!");
 ///             task.finish();
 ///         })
 ///         .take_screenshot("sc1")
-///         .validate();
+///         .validate()
 /// }
 /// ```
 pub struct TestTasks<'a> {
@@ -193,9 +219,11 @@ impl TestTasks<'_> {
         self
     }
 
-    /// run the system with custom [TaskInfo].
+    /// runs a custom system once when the previous action has finished. The system must eventually
+    /// call [TestTask::finish()] from `ResMut<TestTask>`, directly or indirectly, or the test will
+    /// not progress.
     #[must_use]
-    pub fn run_raw<M>(
+    pub fn run<M>(
         &mut self,
         task_info: TaskInfo,
         task: impl IntoScheduleConfigs<ScheduleSystem, M>,
@@ -212,39 +240,15 @@ impl TestTasks<'_> {
         self
     }
 
-    #[must_use]
-    pub fn run_unnamed<M>(
-        &mut self,
-        task: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> &mut Self {
-        self.run_raw(TaskInfo::default(), task)
-    }
-
-    /// runs a custom system once when the previous action has finished. The system must eventually
-    /// call [TestTask::finish()] from `ResMut<TestTask>`, directly or indirectly, or the test will
-    /// not progress.
-    #[must_use]
-    pub fn run<M>(
-        &mut self,
-        name: &str,
-        task: impl IntoScheduleConfigs<ScheduleSystem, M>,
-    ) -> &mut Self {
-        self.run_raw(
-            TaskInfo {
-                name: name.to_owned(),
-                ..default()
-            },
-            task,
-        )
-    }
-
     /// Take a screenshot and compare it with the expected image. The screenshot is saved to [ScreenshotTestConfig.actual_dir](ScreenshotTestConfig#structfield.actual_dir)
     #[must_use]
-    pub fn take_screenshot(&mut self, name: &str) -> &mut Self {
-        self.run_raw(
+    pub fn take_screenshot(&mut self, name: impl Into<String>) -> &mut Self {
+        let name = name.into();
+        self.run(
             TaskInfo {
-                name: format!("take screenshot '{}'", name),
-                screenshot: name.to_owned(),
+                name: format!("take screenshot '{name}'"),
+                test_case: name.clone(),
+                screenshot: name.clone(),
             },
             noop(),
         )
@@ -252,12 +256,11 @@ impl TestTasks<'_> {
 
     /// Wait until the [condition](SystemCondition) passes.
     #[must_use]
-    pub fn wait_until<M>(&mut self, name: &str, condition: impl SystemCondition<M>) -> &mut Self {
-        let task_info = TaskInfo {
-            name: name.to_owned(),
-            ..default()
-        };
-
+    pub fn wait_until<M>(
+        &mut self,
+        task_info: TaskInfo,
+        condition: impl SystemCondition<M>,
+    ) -> &mut Self {
         let task_id = self.tasks.len();
 
         self.app.add_systems(
@@ -277,32 +280,59 @@ impl TestTasks<'_> {
     /// completed.
     #[must_use]
     pub fn await_assets(&mut self) -> &mut Self {
-        self.wait_until("await assets loaded", assets_loaded)
+        self.wait_until(TaskInfo::task("await assets loaded"), assets_loaded)
     }
 
     /// skip a single frame
     #[must_use]
     pub fn noop(&mut self) -> &mut Self {
-        self.run("noop", noop())
+        self.run(TaskInfo::task("noop"), noop())
     }
 
     /// Skip frames.
     #[must_use]
     pub fn sleep(&mut self, frames: u32) -> &mut Self {
         self.run(
-            &format!("set sleep target +{frames} frames"),
+            TaskInfo::task(format!("set sleep target +{frames} frames")),
             move |mut task: ResMut<TestTask>, frame_count: Res<FrameCount>| {
                 task.sleep_target = frame_count.0 + frames;
                 task.finish();
             },
         )
-        .wait_until(&format!("sleep {frames} frames"), sleep_done)
+        .wait_until(
+            TaskInfo::task(format!("sleep {frames} frames")),
+            sleep_done,
+        )
+    }
+
+    /// Skip frames.
+    #[must_use]
+    pub fn sleep_task(&mut self, task_info: TaskInfo, frames: u32) -> &mut Self {
+        self.run(
+            TaskInfo::task(format!("set sleep target +{frames} frames"))
+                .only_for(task_info.test_case.clone()),
+            move |mut task: ResMut<TestTask>, frame_count: Res<FrameCount>| {
+                task.sleep_target = frame_count.0 + frames;
+                task.finish();
+            },
+        )
+        .wait_until(task_info, sleep_done)
     }
 
     /// Run the app with all tasks and compare the screenshot.
-    pub fn validate(&mut self) {
+    pub fn validate(&mut self) -> ExitCode {
+        let mut args = Arguments::from_args();
+        args.test_threads = Some(1);
+
+        let mut tests = Vec::new();
         for (_, task) in &self.tasks {
             if !task.screenshot.is_empty() {
+                let screenshot = task.screenshot.to_owned();
+                let config = self.config.clone();
+                tests.push(Trial::test(task.screenshot.clone(), move || {
+                    validate_screenshot(config, screenshot)
+                }));
+
                 let file = self.config.actual(&task.screenshot);
                 if file.exists() {
                     info!("cleaning {}", file.to_str().unwrap());
@@ -312,7 +342,15 @@ impl TestTasks<'_> {
         }
 
         let state = TestTask {
-            tasks: self.tasks.clone(),
+            tasks: self
+                .tasks
+                .iter()
+                .filter(|(_id, info)| {
+                    info.test_case.is_empty()
+                        || !args.is_filtered_out(&Trial::test(info.test_case.clone(), || Ok(())))
+                })
+                .cloned()
+                .collect(),
             ..default()
         };
 
@@ -320,84 +358,57 @@ impl TestTasks<'_> {
             .insert_resource(state)
             .insert_resource(self.config.clone());
 
-        self.app.run();
-        self.validate_impl();
-    }
-
-    fn validate_impl(&self) {
-        let mut failed = false;
-
-        let red = anstyle::Style::new().fg_color(Some(AnsiColor::Red.into()));
-        let yellow = anstyle::Style::new().fg_color(Some(AnsiColor::Yellow.into()));
-        let green = anstyle::Style::new().fg_color(Some(AnsiColor::Green.into()));
-
-        for (_, task) in &self.tasks {
-            if task.screenshot.is_empty() {
-                continue;
-            }
-
-            let actual = self.config.actual(&task.screenshot);
-            if !actual.exists() {
-                println!(
-                    "[{red}FAIL{red:#}] screenshot '{}' not taken.",
-                    task.screenshot
-                );
-                failed = true;
-                continue;
-            }
-
-            let expected = self.config.expected(&task.screenshot);
-            if !expected.exists() {
-                fs::create_dir_all(expected.parent().unwrap()).unwrap();
-                fs::copy(actual, expected).unwrap();
-                println!(
-                    "[{yellow}NEW {yellow:#}] created expected screenshot '{}' from actual.",
-                    task.screenshot
-                );
-                continue;
-            }
-
-            let actual = from_rgba(image::open(actual).unwrap().to_rgba8());
-            let expected = from_rgba(image::open(expected).unwrap().to_rgba8());
-
-            let difference = rendiff::diff(actual.as_ref(), expected.as_ref());
-            if !self
-                .config
-                .threshold
-                .to_threshold(&actual)
-                .allows(difference.histogram())
-            {
-                let Some(diff_image) = difference.diff_image() else {
-                    panic!()
-                };
-                let diff = self.config.diff(&task.screenshot);
-                fs::create_dir_all(diff.parent().unwrap()).unwrap_or(());
-                image::RgbaImage::from_raw(
-                    diff_image.width() as u32,
-                    diff_image.height() as u32,
-                    Vec::from(diff_image.buf().as_flattened()),
-                )
-                .unwrap()
-                .save(diff.clone())
-                .unwrap();
-
-                failed = true;
-                println!(
-                    "[{red}FAIL{red:#}] screenshot '{}' mismatch: file://{}",
-                    task.screenshot,
-                    diff.to_str().unwrap()
-                );
-                continue;
-            }
-            println!("[{green}PASS{green:#}] screenshot '{}'", task.screenshot);
+        if ! args.list && tests.iter().any(|t| !args.is_filtered_out(t)) {
+            self.app.run();
         }
 
-        if failed {
-            std::process::exit(1);
-        } else {
-            std::process::exit(0);
-        }
+        libtest_mimic::run(&args, tests).exit_code()
     }
+}
+
+fn validate_screenshot(config: ScreenshotTestConfig, screenshot: String) -> Result<(), Failed> {
+    let actual = config.actual(&screenshot);
+    if !actual.exists() {
+        return Err(format!("screenshot '{screenshot}' not taken.").into());
+    }
+
+    let expected = config.expected(&screenshot);
+    if !expected.exists() {
+        fs::create_dir_all(expected.parent().unwrap()).unwrap();
+        fs::copy(actual, expected).unwrap();
+        println!("created expected screenshot '{screenshot}' from actual.",);
+        return Ok(());
+    }
+
+    let actual = from_rgba(image::open(actual)?.to_rgba8());
+    let expected = from_rgba(image::open(expected)?.to_rgba8());
+
+    let difference = rendiff::diff(actual.as_ref(), expected.as_ref());
+    if !config
+        .threshold
+        .to_threshold(&actual)
+        .allows(difference.histogram())
+    {
+        let Some(diff_image) = difference.diff_image() else {
+            panic!()
+        };
+        let diff = config.diff(&screenshot);
+        fs::create_dir_all(diff.parent().unwrap()).unwrap_or(());
+        image::RgbaImage::from_raw(
+            diff_image.width() as u32,
+            diff_image.height() as u32,
+            Vec::from(diff_image.buf().as_flattened()),
+        )
+        .unwrap()
+        .save(diff.clone())?;
+
+        return Err(format!(
+            "screenshot '{screenshot}' mismatch: file://{}\n",
+            diff.to_str().unwrap()
+        )
+        .into());
+    }
+    Ok(())
 }
 
 fn from_rgba(image: image::RgbaImage) -> imgref::ImgVec<[u8; 4]> {
