@@ -38,10 +38,10 @@ fn main() -> ExitCode{
         .sleep(10)
         .take_screenshot("example_scene")
         .run(
-            TaskInfo::task("rotate").only_for("example_rotated"),
+            TaskInfo::task("rotate").for_cases(["example_rotated"]),
             rotate
         )
-        .take_screenshot("example_rotated")
+        .take_screenshot_for_cases("example_rotated", ["example_rotated"])
         .validate()
 }
 fn rotate(mut task: ResMut<TestTask>, query: Query<&mut Transform, With<Camera3d>>){

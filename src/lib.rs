@@ -137,7 +137,7 @@ impl Default for ScreenshotTestConfig {
 #[derive(Default, Clone)]
 pub struct TaskInfo {
     pub name: String,
-    pub test_case: String,
+    pub test_cases: Vec<String>,
     pub screenshot: String,
 }
 
@@ -152,9 +152,9 @@ impl TaskInfo {
             ..default()
         }
     }
-    pub fn only_for(&mut self, screenshot: impl Into<String>) -> Self {
+    pub fn for_cases(&mut self, cases: impl IntoIterator<Item = impl Into<String>>) -> Self {
         let mut task = self.clone();
-        task.test_case = screenshot.into();
+        task.test_cases = cases.into_iter().map(|i| i.into()).collect();
         task
     }
 }
@@ -247,7 +247,25 @@ impl TestTasks<'_> {
         self.run(
             TaskInfo {
                 name: format!("take screenshot '{name}'"),
-                test_case: name.clone(),
+                test_cases: vec![name.clone()],
+                screenshot: name.clone(),
+            },
+            noop(),
+        )
+    }
+
+    /// Take a screenshot and compare it with the expected image. The screenshot is saved to [ScreenshotTestConfig.actual_dir](ScreenshotTestConfig#structfield.actual_dir)
+    #[must_use]
+    pub fn take_screenshot_for_cases(
+        &mut self,
+        name: impl Into<String>,
+        cases: impl IntoIterator<Item = impl Into<String>>,
+    ) -> &mut Self {
+        let name = name.into();
+        self.run(
+            TaskInfo {
+                name: format!("take screenshot '{name}'"),
+                test_cases: cases.into_iter().map(|i| i.into()).collect(),
                 screenshot: name.clone(),
             },
             noop(),
@@ -299,10 +317,7 @@ impl TestTasks<'_> {
                 task.finish();
             },
         )
-        .wait_until(
-            TaskInfo::task(format!("sleep {frames} frames")),
-            sleep_done,
-        )
+        .wait_until(TaskInfo::task(format!("sleep {frames} frames")), sleep_done)
     }
 
     /// Skip frames.
@@ -310,7 +325,7 @@ impl TestTasks<'_> {
     pub fn sleep_task(&mut self, task_info: TaskInfo, frames: u32) -> &mut Self {
         self.run(
             TaskInfo::task(format!("set sleep target +{frames} frames"))
-                .only_for(task_info.test_case.clone()),
+                .for_cases(task_info.test_cases.clone()),
             move |mut task: ResMut<TestTask>, frame_count: Res<FrameCount>| {
                 task.sleep_target = frame_count.0 + frames;
                 task.finish();
@@ -327,12 +342,18 @@ impl TestTasks<'_> {
         let mut tests = Vec::new();
         for (_, task) in &self.tasks {
             if !task.screenshot.is_empty() {
-                let screenshot = task.screenshot.to_owned();
-                let config = self.config.clone();
-                tests.push(Trial::test(task.screenshot.clone(), move || {
-                    validate_screenshot(config, screenshot)
-                }));
-
+                if task.test_cases.is_empty()
+                    || !task
+                        .test_cases
+                        .iter()
+                        .any(|t| args.is_filtered_out(&Trial::test(t, || Ok(()))))
+                {
+                    let screenshot = task.screenshot.to_owned();
+                    let config = self.config.clone();
+                    tests.push(Trial::test(task.screenshot.clone(), move || {
+                        validate_screenshot(config, screenshot)
+                    }));
+                }
                 let file = self.config.actual(&task.screenshot);
                 if file.exists() {
                     info!("cleaning {}", file.to_str().unwrap());
@@ -346,8 +367,11 @@ impl TestTasks<'_> {
                 .tasks
                 .iter()
                 .filter(|(_id, info)| {
-                    info.test_case.is_empty()
-                        || !args.is_filtered_out(&Trial::test(info.test_case.clone(), || Ok(())))
+                    info.test_cases.is_empty()
+                        || !info
+                            .test_cases
+                            .iter()
+                            .all(|t| args.is_filtered_out(&Trial::test(t.clone(), || Ok(()))))
                 })
                 .cloned()
                 .collect(),
@@ -358,7 +382,7 @@ impl TestTasks<'_> {
             .insert_resource(state)
             .insert_resource(self.config.clone());
 
-        if ! args.list && tests.iter().any(|t| !args.is_filtered_out(t)) {
+        if !args.list && tests.iter().any(|t| !args.is_filtered_out(t)) {
             self.app.run();
         }
 
