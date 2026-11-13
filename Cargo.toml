@@ -1,7 +1,7 @@
 [package]
 name = "bevy_mod_screenshot_test"
 description = "Screenshot test plugin for Bevy"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 repository="https://github.com/azureblaze/bevy_mod_screenshot_test"
 autotests = false
@@ -10,17 +10,17 @@ keywords=["bevy"]
 license = "Apache-2.0"
 
 [dependencies]
-bevy = {version = "0.19", features = ["bevy_render", "default_app"]}
+bevy = {version = "0.20", features = ["bevy_render", "default_app"]}
 # Set max log levels. This helps avoid unwanted low-severity log spam, which can affect performance.
 log = { version = "0.4" }
 
-rendiff = "0.2.2"
-image = { version = "0.25.10", default-features = false, features = ["png"] }
-imgref = "1.12.2"
-libtest-mimic = "0.8.2"
+rendiff = "0.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+imgref = "1.12"
+libtest-mimic = "0.8"
 
 [dev-dependencies]
-bevy = {version =  "0.19", features = ["3d"]}
+bevy = {version =  "0.20", features = ["3d"]}
 
 [[test]]
 name="example"
@@ -56,3 +56,6 @@ codegen-units = 1
 # Do a second optimization pass over the entire program, including dependencies.
 # Slows compile times, marginal improvements.
 lto = "thin"
+
+[lints]
+workspace = true
